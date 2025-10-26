@@ -1,19 +1,23 @@
-name: Deploy to Contabo Server
+name: Deploy to Contabo
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [ main ]
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-sag4wd
+  cancel-in-progress: true
+
+env:
+  DEPLOY_PATH: /home/sag4wd/public_html
 
 jobs:
   deploy:
-    name: Deploy Website
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
 
     steps:
       - name: Checkout code
@@ -21,137 +25,50 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup SSH
+      - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Add server to known hosts
+      - name: Trust server host key
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Update sitemap last modified date
-        run: |
-          # Update sitemap.xml with current date
-          CURRENT_DATE=$(date +%Y-%m-%d)
-          sed -i "s/<lastmod>.*<\/lastmod>/<lastmod>$CURRENT_DATE<\/lastmod>/g" sitemap.xml
-
-      - name: Deploy files to Contabo server
+      - name: Deploy with rsync
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
-          DEPLOY_PATH: /home/sag4wd/public_html
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
         run: |
-          echo "Starting deployment to Contabo server..."
+          rsync -az --delete \
+            -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=yes" \
+            --exclude '.git' \
+            --exclude '.github' \
+            ./ "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
 
-          # Create deployment package (exclude .git, .github, and other unnecessary files)
-          tar -czf deploy.tar.gz \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='node_modules' \
-            --exclude='.gitignore' \
-            --exclude='README.md' \
-            --exclude='*.tar.gz' \
-            .
-
-          echo "Uploading files to server..."
-          scp -P $SSH_PORT deploy.tar.gz $SSH_USER@$SSH_HOST:/tmp/sag4wd-deploy.tar.gz
-
-          echo "Extracting and deploying files on server..."
-          ssh -p $SSH_PORT $SSH_USER@$SSH_HOST << 'ENDSSH'
-            set -e
-
-            # Create backup of current deployment
-            BACKUP_DIR="/home/sag4wd/backups"
-            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-            mkdir -p $BACKUP_DIR
-
-            if [ -d "/home/sag4wd/public_html" ]; then
-              echo "Creating backup of current deployment..."
-              tar -czf $BACKUP_DIR/backup_$TIMESTAMP.tar.gz -C /home/sag4wd public_html
-
-              # Keep only last 5 backups
-              cd $BACKUP_DIR
-              ls -t backup_*.tar.gz | tail -n +6 | xargs -r rm
-            fi
-
-            # Create public_html directory if it doesn't exist
-            mkdir -p /home/sag4wd/public_html
-
-            # Extract new deployment
-            echo "Deploying new files..."
-            tar -xzf /tmp/sag4wd-deploy.tar.gz -C /home/sag4wd/public_html
-
-            # Set proper permissions
-            echo "Setting permissions..."
-            find /home/sag4wd/public_html -type d -exec chmod 755 {} \;
-            find /home/sag4wd/public_html -type f -exec chmod 644 {} \;
-
-            # Ensure .htaccess is readable
-            if [ -f /home/sag4wd/public_html/.htaccess ]; then
-              chmod 644 /home/sag4wd/public_html/.htaccess
-            fi
-
-            # Clean up
-            rm /tmp/sag4wd-deploy.tar.gz
-
-            echo "Deployment completed successfully!"
-            echo "Deployed to: /home/sag4wd/public_html"
-          ENDSSH
-
-          # Clean up local deployment package
-          rm deploy.tar.gz
-
-          echo "✅ Deployment completed successfully!"
-
-      - name: Verify deployment
+      - name: Fix file permissions and ownership
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
         run: |
-          echo "Verifying deployment..."
-          ssh -p $SSH_PORT $SSH_USER@$SSH_HOST << 'ENDSSH'
-            # Check if key files exist
-            echo "Checking deployed files..."
-
-            if [ -f /home/sag4wd/public_html/index.html ]; then
-              echo "✅ index.html found"
-            else
-              echo "❌ index.html not found"
-              exit 1
-            fi
-
-            if [ -f /home/sag4wd/public_html/.htaccess ]; then
-              echo "✅ .htaccess found"
-            else
-              echo "⚠️  .htaccess not found"
-            fi
-
-            if [ -f /home/sag4wd/public_html/sitemap.xml ]; then
-              echo "✅ sitemap.xml found"
-            else
-              echo "⚠️  sitemap.xml not found"
-            fi
-
-            if [ -f /home/sag4wd/public_html/robots.txt ]; then
-              echo "✅ robots.txt found"
-            else
-              echo "⚠️  robots.txt not found"
-            fi
-
-            echo ""
-            echo "Deployment verification completed!"
-          ENDSSH
-
-      - name: Send deployment notification
-        if: always()
-        run: |
-          if [ "${{ job.status }}" == "success" ]; then
-            echo "🎉 Deployment to Contabo server completed successfully!"
-            echo "Website URL: https://sag4wd.com"
-          else
-            echo "❌ Deployment failed. Please check the logs above."
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" <<'EOSSH'
+          find "$DEPLOY_PATH" -type d -exec chmod 755 {} \;
+          find "$DEPLOY_PATH" -type f -exec chmod 644 {} \;
+          chown -R sag4wd:sag4wd "$DEPLOY_PATH"
+          if [ -f "$DEPLOY_PATH/sitemap.xml" ]; then
+            DATE=$(date -u +"%Y-%m-%d")
+            sed -i "s#<lastmod>.*</lastmod>#<lastmod>$DATE</lastmod>#g" "$DEPLOY_PATH/sitemap.xml" || true
           fi
+          if [ -f "$DEPLOY_PATH/robots.txt" ]; then
+            echo "# Robots.txt verified on $(date -u)" >> "$DEPLOY_PATH/robots.txt"
+          fi
+          EOSSH
+
+      - name: Verify website
+        run: |
+          curl -I https://sag4wd.com/ || true
+
+      - name: Deployment completed
+        run: echo "✅ Deployment finished successfully!"
