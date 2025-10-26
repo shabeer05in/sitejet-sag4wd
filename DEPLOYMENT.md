@@ -24,7 +24,7 @@ ssh-copy-id -i ~/.ssh/sag4wd_deploy.pub user@your-contabo-server.com
 # Or manually:
 # 1. Login to your server
 # 2. Add the public key to ~/.ssh/authorized_keys
-cat ~/.ssh/sag4wd_deploy.pub | ssh user@server "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+cat ~/.ssh/sag4wd_deploy.pub | ssh user@your-contabo-server.com "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
 ```
 
 ### 3. Set Up GitHub Repository Secrets
@@ -262,5 +262,4 @@ tar -xzf backup_YYYYMMDD_HHMMSS.tar.gz -C /home/sag4wd/
 
 ---
 
-**Last Updated:** 2025-10-26
 **Repository:** sitejet-sag4wd
