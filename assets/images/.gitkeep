@@ -1,0 +1,14 @@
+# Images Directory
+
+Place all website images here:
+
+- logo.png - SAG4WD logo
+- hero-bg.jpg - Homepage hero background
+- og-image.jpg - Open Graph image for social sharing
+- favicon.ico - Website favicon
+
+Recommended image formats:
+- PNG for logos and graphics with transparency
+- JPEG for photographs
+- WebP for modern browsers (with fallback)
+- SVG for icons and simple graphics

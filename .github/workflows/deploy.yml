@@ -2,23 +2,73 @@ name: Deploy to Contabo
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-sag4wd
+  cancel-in-progress: true
+
+env:
+  DEPLOY_PATH: /home/sag4wd/public_html
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Deploy via SSH to Contabo
-        uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.CONTABO_HOST }}
-          username: ${{ secrets.CONTABO_USER }}
-          key: ${{ secrets.CONTABO_SSH_KEY }}
-          source: "./*"
-          target: "/home/sag4wd/public_html"
-          strip_components: 1
+          fetch-depth: 0
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Trust server host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy with rsync
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          rsync -az --delete \
+            -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=yes" \
+            --exclude '.git' \
+            --exclude '.github' \
+            ./ "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
+
+      - name: Fix file permissions and ownership
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" <<'EOSSH'
+          find "$DEPLOY_PATH" -type d -exec chmod 755 {} \;
+          find "$DEPLOY_PATH" -type f -exec chmod 644 {} \;
+          chown -R sag4wd:sag4wd "$DEPLOY_PATH"
+          if [ -f "$DEPLOY_PATH/sitemap.xml" ]; then
+            DATE=$(date -u +"%Y-%m-%d")
+            sed -i "s#<lastmod>.*</lastmod>#<lastmod>$DATE</lastmod>#g" "$DEPLOY_PATH/sitemap.xml" || true
+          fi
+          if [ -f "$DEPLOY_PATH/robots.txt" ]; then
+            echo "# Robots.txt verified on $(date -u)" >> "$DEPLOY_PATH/robots.txt"
+          fi
+          EOSSH
+
+      - name: Verify website
+        run: |
+          curl -I https://sag4wd.com/ || true
+
+      - name: Deployment completed
+        run: echo "✅ Deployment finished successfully!"

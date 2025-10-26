@@ -1,0 +1,9 @@
+# Fonts Directory
+
+Place custom web fonts here.
+
+Recommended formats:
+- WOFF2 (best compression, modern browsers)
+- WOFF (fallback for older browsers)
+
+Font files should be optimized and subsetted for web use.

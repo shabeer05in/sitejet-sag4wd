@@ -1,0 +1,16 @@
+# SAG4WD Robots.txt
+# Allow all search engines to index the site
+
+User-agent: *
+Allow: /
+
+# Disallow specific directories
+Disallow: /cgi-bin/
+Disallow: /tmp/
+Disallow: /.git/
+
+# Sitemap location
+Sitemap: https://sag4wd.com/sitemap.xml
+
+# Crawl-delay (optional - helps reduce server load)
+Crawl-delay: 10
